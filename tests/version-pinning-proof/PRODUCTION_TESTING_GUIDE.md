@@ -22,8 +22,20 @@ This guide shows how to use the version-pinning patched httpfs extension in prod
 # For Linux x64:
 # Artifact name: httpfs-v1.4.4-extension-linux_amd64
 
-# Note: You'll need a GitHub token to download artifacts
+# IMPORTANT: The artifact is a ZIP file containing the extension!
+# You need to unzip it to get the actual extension binary.
+
+# Method 1: Using gh CLI
 gh run download 21759383469 -n httpfs-v1.4.4-extension-linux_amd64
+
+# Method 2: Manual download from web UI
+# 1. Go to: https://github.com/OneCyrus/duckdb-httpfs/actions/runs/21759383469
+# 2. Download: httpfs-v1.4.4-extension-linux_amd64.zip
+# 3. Unzip it:
+unzip httpfs-v1.4.4-extension-linux_amd64.zip
+
+# This will extract the actual extension file:
+# httpfs.duckdb_extension  ← This is what you need!
 ```
 
 ### Option B: Build from Source
@@ -47,18 +59,37 @@ For production, you might want a signed/official build. Contact the maintainers 
 
 ## Step 2: Place the Extension
 
-Create a local directory for custom extensions:
+**CRITICAL: Use the correct filename!**
+
+The artifact is a ZIP file. After unzipping, you'll have a file named `httpfs.duckdb_extension` (NOT the artifact name).
 
 ```bash
-# Create extensions directory
+# 1. Unzip the artifact (if not already done)
+unzip httpfs-v1.4.4-extension-linux_amd64.zip
+# This extracts: httpfs.duckdb_extension
+
+# 2. Create DuckDB extensions directory
 mkdir -p ~/.duckdb/extensions/v1.4.4/linux_amd64
 
-# Copy the patched extension
+# 3. Copy the ACTUAL extension file (httpfs.duckdb_extension)
 cp httpfs.duckdb_extension ~/.duckdb/extensions/v1.4.4/linux_amd64/
 
-# Or use a custom location
+# 4. Verify it's there
+ls -lh ~/.duckdb/extensions/v1.4.4/linux_amd64/httpfs.duckdb_extension
+# Should show the file with proper permissions
+
+# Alternative: Custom location
 mkdir -p /path/to/custom/extensions
 cp httpfs.duckdb_extension /path/to/custom/extensions/
+```
+
+**Common Mistake to Avoid:**
+```bash
+# ❌ WRONG - Don't use the artifact filename
+cp httpfs-v1.4.4-extension-linux_amd64.duckdb_extension ~/.duckdb/extensions/
+
+# ✅ CORRECT - Use the actual extension binary
+cp httpfs.duckdb_extension ~/.duckdb/extensions/v1.4.4/linux_amd64/
 ```
 
 ## Step 3: Configure dbt-duckdb
@@ -79,7 +110,7 @@ your_profile:
         extension_directory: '/path/to/custom/extensions'
 ```
 
-### Method 2: Using init_sql Hook
+### Method 2: Using init_sql Hook (Explicit Path)
 
 ```yaml
 # profiles.yml
@@ -89,9 +120,12 @@ your_profile:
       type: duckdb
       path: /path/to/your/database.duckdb
       init_sql:
-        - "INSTALL httpfs FROM '/path/to/custom/extensions/httpfs.duckdb_extension'"
+        - "INSTALL httpfs FROM '~/.duckdb/extensions/v1.4.4/linux_amd64/httpfs.duckdb_extension'"
         - "LOAD httpfs"
         - "SET enable_http_metadata_cache = true"
+
+# IMPORTANT: Use the full path to httpfs.duckdb_extension
+# NOT the artifact name!
 ```
 
 ### Method 3: Pre-load in Database
@@ -244,6 +278,33 @@ settings:
 ```
 
 ## Troubleshooting
+
+### Error: "did not contain the expected entrypoint function"
+
+```
+_duckdb.IOException: Extension 'httpfs-v1.4.4-linux_amd64.duckdb_extension'
+did not contain the expected entrypoint function 'httpfs-v1_duckdb_cpp_init'
+```
+
+**Cause:** You're trying to load the artifact filename instead of the actual extension binary.
+
+**Solution:**
+```bash
+# 1. Unzip the artifact
+unzip httpfs-v1.4.4-extension-linux_amd64.zip
+
+# 2. The actual extension is named: httpfs.duckdb_extension
+ls -lh httpfs.duckdb_extension
+
+# 3. Use THIS file, not the artifact name!
+cp httpfs.duckdb_extension ~/.duckdb/extensions/v1.4.4/linux_amd64/
+
+# 4. Update your dbt config to use the correct path
+# profiles.yml
+init_sql:
+  - "INSTALL httpfs FROM '~/.duckdb/extensions/v1.4.4/linux_amd64/httpfs.duckdb_extension'"
+  - "LOAD httpfs"
+```
 
 ### Extension Not Loading
 

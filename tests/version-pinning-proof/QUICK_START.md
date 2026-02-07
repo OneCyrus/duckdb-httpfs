@@ -3,11 +3,15 @@
 ## TL;DR
 
 ```bash
-# 1. Get the extension (choose platform)
-# Linux x64: httpfs-v1.4.4-extension-linux_amd64
-# Download from: https://github.com/OneCyrus/duckdb-httpfs/actions/runs/21759383469
+# 1. Download the artifact (it's a ZIP file)
+# Linux x64: httpfs-v1.4.4-extension-linux_amd64.zip
+# From: https://github.com/OneCyrus/duckdb-httpfs/actions/runs/21759383469
 
-# 2. Place it where DuckDB can find it
+# 2. Unzip it to get the actual extension
+unzip httpfs-v1.4.4-extension-linux_amd64.zip
+# Extracts: httpfs.duckdb_extension (this is what you need!)
+
+# 3. Place it where DuckDB can find it
 mkdir -p ~/.duckdb/extensions/v1.4.4/linux_amd64
 cp httpfs.duckdb_extension ~/.duckdb/extensions/v1.4.4/linux_amd64/
 
