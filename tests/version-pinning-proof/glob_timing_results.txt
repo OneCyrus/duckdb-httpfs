@@ -1,0 +1,165 @@
+================================================================================
+Glob Operation Timing: When do HEAD requests happen?
+================================================================================
+
+This test shows the REQUEST SEQUENCE for glob patterns like *.json
+
+Timing test server running
+Files available: file1.json, file2.json, file3.json
+======================================================================
+
+================================================================================
+Simulating DuckDB's Glob Operation: read_json('*.json')
+================================================================================
+
+Watch the request sequence to see when HEAD requests happen:
+
+--- Starting glob simulation ---
+
+Step 1: Glob expansion (list matching files)
+  DuckDB finds: file1.json, file2.json, file3.json
+
+Step 2: Process each file (watch the request pattern)
+
+Processing file1.json...
+[08:40:35.542] HEAD /file1.json
+  → HEAD completed
+[08:40:35.676] GET /file1.json
+  → GET completed
+
+Processing file2.json...
+[08:40:35.809] HEAD /file2.json
+  → HEAD completed
+[08:40:35.941] GET /file2.json
+  → GET completed
+
+Processing file3.json...
+[08:40:36.071] HEAD /file3.json
+  → HEAD completed
+[08:40:36.202] GET /file3.json
+  → GET completed
+
+================================================================================
+REQUEST SEQUENCE ANALYSIS
+================================================================================
+
+The pattern is INTERLEAVED (HEAD → GET for each file):
+
+  file1.json: HEAD → GET
+  file2.json: HEAD → GET
+  file3.json: HEAD → GET
+
+NOT batched (all HEADs → all GETs):
+  ✗ file1.json: HEAD
+  ✗ file2.json: HEAD
+  ✗ file3.json: HEAD
+  ✗ file1.json: GET
+  ✗ file2.json: GET
+  ✗ file3.json: GET
+
+================================================================================
+WHAT THIS MEANS FOR VERSION PINNING
+================================================================================
+
+Timeline for *.json glob with files being updated:
+
+T0: Glob expansion finds: [file1.json, file2.json, file3.json]
+
+--- Processing file1.json ---
+T1: HEAD file1.json → version-1, capture versionId
+T2: GET file1.json?versionId=version-1 → version-1 data ✅
+
+--- file1.json gets updated to version-2 (we don't care!) ---
+
+--- Processing file2.json ---
+T3: HEAD file2.json → version-1, capture versionId
+
+--- file2.json gets updated to version-2 ---
+
+T4: GET file2.json?versionId=version-1 → version-1 data ✅ (pinned!)
+
+--- Processing file3.json ---
+T5: HEAD file3.json → version-2 (already updated), capture versionId
+T6: GET file3.json?versionId=version-2 → version-2 data ✅
+
+================================================================================
+VERSION PINNING GUARANTEES
+================================================================================
+
+✅ WHAT VERSION PINNING SOLVES:
+
+1. HEAD/GET consistency for EACH file
+   - Each file's metadata and content match
+   - No malformed JSON errors
+   - No size mismatches
+
+2. Per-file version stability
+   - Once HEAD captures a version, GET uses that version
+   - File can be updated mid-read without corruption
+
+3. Predictable behavior
+   - Each file reads from ONE consistent version
+   - No mixed data within a file
+
+⚠️  WHAT VERSION PINNING DOESN'T SOLVE:
+
+1. Cross-file consistency
+   - file1.json might read version-1
+   - file2.json might read version-2
+   - Each file is consistent, but they might be from different snapshots
+
+2. File additions/deletions
+   - Glob at T0 finds file1.json
+   - File deleted at T1 (before HEAD)
+   - HEAD/GET will fail with 404
+   - This is expected, not a bug
+
+3. New files after glob
+   - file4.json created after glob expansion
+   - Won't be included in results
+   - Glob is a point-in-time snapshot
+
+================================================================================
+FOR YOUR *.json MALFORMED ERRORS
+================================================================================
+
+Your malformed JSON errors are caused by:
+  Problem: HEAD → [file updated] → GET for SAME file
+  Result: Metadata and content don't match
+
+Version pinning FIXES this by:
+  Solution: HEAD (capture versionId) → GET (with versionId)
+  Result: Metadata and content ALWAYS match
+
+Each file is read from a consistent version, eliminating:
+  ✅ Malformed JSON errors
+  ✅ Schema mismatch errors
+  ✅ Size mismatch errors
+  ✅ Unexpected field errors
+
+================================================================================
+CROSS-FILE CONSISTENCY (Advanced Topic)
+================================================================================
+
+If you need ALL files to be from the SAME snapshot:
+
+Option 1: Use S3 object versioning snapshot
+  - List objects with specific timestamp
+  - Capture all versionIds upfront
+  - Read each file with its captured versionId
+
+Option 2: Use transactional file format
+  - Delta Lake, Iceberg, Hudi
+  - Provide ACID guarantees across files
+  - Built-in snapshot isolation
+
+Option 3: Accept eventual consistency
+  - Each file is internally consistent (version pinning)
+  - Files might be from different versions
+  - Acceptable for many use cases (logs, metrics, etc.)
+
+For most use cases, per-file consistency (version pinning) is sufficient!
+
+================================================================================
+
+Stopping server...
