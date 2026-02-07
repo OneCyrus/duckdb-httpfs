@@ -1,0 +1,142 @@
+==========================================================================
+Demonstration: Why Version ID Pinning is Critical
+==========================================================================
+
+This script demonstrates what happens when a file is updated mid-download
+WITHOUT version ID pinning.
+
+Starting mock S3 server...
+Mock S3 Server running on port 8888
+Test file available at: http://localhost:8888/test-file.bin
+Initial version: version-1
+============================================================
+
+[SCHEDULED] Will change current version to version-2 in 2 seconds...
+
+==========================================================================
+SCENARIO: Reading a file in chunks WITHOUT version pinning
+==========================================================================
+
+Step 1: Read first chunk (bytes 0-10000)
+------------------------------------------------------------------------
+  -> Serving current version: version-1
+[08:08:16.919] GET /test-file.bin - "GET /test-file.bin HTTP/1.1" 206 -
+  -> Sent bytes 0-10000 from version-1
+  -> Serving current version: version-1
+[08:08:16.962] HEAD /test-file.bin - "HEAD /test-file.bin HTTP/1.1" 206 -
+  -> Sent bytes 0-10000 from version-1
+  First character: 'A'
+  Version: version-1
+  ✓ Got data from version-1
+
+Step 2: File gets updated on server (version-1 -> version-2)
+------------------------------------------------------------------------
+  Waiting for automatic version change...
+
+============================================================
+[VERSION CHANGE] version-1 -> version-2
+============================================================
+
+  ✓ Server now serving version-2
+
+Step 3: Read second chunk WITHOUT version pinning (bytes 10001-20000)
+------------------------------------------------------------------------
+  -> Serving current version: version-2
+[08:08:19.504] GET /test-file.bin - "GET /test-file.bin HTTP/1.1" 206 -
+  -> Sent bytes 10001-20000 from version-2
+  -> Serving current version: version-2
+[08:08:19.545] HEAD /test-file.bin - "HEAD /test-file.bin HTTP/1.1" 206 -
+  -> Sent bytes 10001-20000 from version-2
+  First character: 'B'
+  Version: version-2
+  ⚠️  Got data from version-2 (DIFFERENT VERSION!)
+
+Step 4: Read third chunk WITHOUT version pinning (bytes 20001-30000)
+------------------------------------------------------------------------
+  -> Serving current version: version-2
+[08:08:19.576] GET /test-file.bin - "GET /test-file.bin HTTP/1.1" 206 -
+  -> Sent bytes 20001-30000 from version-2
+  -> Serving current version: version-2
+[08:08:19.621] HEAD /test-file.bin - "HEAD /test-file.bin HTTP/1.1" 206 -
+  -> Sent bytes 20001-30000 from version-2
+  First character: 'B'
+  Version: version-2
+  ⚠️  Got data from version-2 (DIFFERENT VERSION!)
+
+==========================================================================
+RESULT WITHOUT VERSION PINNING: DATA CORRUPTION!
+==========================================================================
+
+Chunk 1: 'A' from version-1
+Chunk 2: 'B' from version-2
+Chunk 3: 'B' from version-2
+
+❌ CORRUPTED: Different chunks contain data from different versions!
+   This creates an inconsistent file that mixes version-1 and version-2 data.
+
+
+==========================================================================
+SCENARIO: Reading a file in chunks WITH version pinning
+==========================================================================
+
+Step 1: Read first chunk and capture version ID
+------------------------------------------------------------------------
+  -> Serving pinned version: version-1
+[08:08:19.657] GET /test-file.bin?versionId=version-1 - "GET /test-file.bin?versionId=version-1 HTTP/1.1" 206 -
+  -> Sent bytes 0-10000 from version-1
+  First character: 'A'
+  Captured version ID: version-1
+  ✓ Got data from version-1
+
+Step 2: File is updated on server (already version-2)
+------------------------------------------------------------------------
+  Server is currently serving version-2
+  ✓ But we have the version ID pinned to version-1
+
+Step 3: Read second chunk WITH version pinning
+------------------------------------------------------------------------
+  -> Serving pinned version: version-1
+[08:08:19.696] GET /test-file.bin?versionId=version-1 - "GET /test-file.bin?versionId=version-1 HTTP/1.1" 206 -
+  -> Sent bytes 10001-20000 from version-1
+  First character: 'A'
+  Using pinned version: version-1
+  ✓ Got data from version-1 (CONSISTENT!)
+
+Step 4: Read third chunk WITH version pinning
+------------------------------------------------------------------------
+  -> Serving pinned version: version-1
+[08:08:19.734] GET /test-file.bin?versionId=version-1 - "GET /test-file.bin?versionId=version-1 HTTP/1.1" 206 -
+  -> Sent bytes 20001-30000 from version-1
+  First character: 'A'
+  Using pinned version: version-1
+  ✓ Got data from version-1 (CONSISTENT!)
+
+==========================================================================
+RESULT WITH VERSION PINNING: DATA INTEGRITY PRESERVED!
+==========================================================================
+
+Chunk 1: 'A' from version-1
+Chunk 2: 'A' from version-1
+Chunk 3: 'A' from version-1
+
+✅ SUCCESS: All chunks contain consistent data from the same version!
+   Even though the server updated to version-2, we continued reading version-1.
+
+==========================================================================
+CONCLUSION
+==========================================================================
+
+WITHOUT version pinning:
+  ❌ Mixed data from multiple versions
+  ❌ Data corruption
+  ❌ Unpredictable results
+
+WITH version pinning:
+  ✅ Consistent data from single version
+  ✅ Data integrity maintained
+  ✅ Predictable, reliable results
+
+This is why DuckDB's S3 version ID support is critical for production use!
+==========================================================================
+
+Cleaning up...

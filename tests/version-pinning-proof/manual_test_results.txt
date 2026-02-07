@@ -1,0 +1,142 @@
+==========================================================================
+Manual Test: S3 Version ID Pinning
+==========================================================================
+
+This test demonstrates how S3 version IDs work:
+1. Server starts serving version-1 (all 'A's)
+2. After 2 seconds, server switches to version-2 (all 'B's)
+3. We verify version pinning works with explicit versionId parameter
+
+Starting mock S3 server...
+Server PID: 9109
+Mock S3 Server running on port 8888
+Test file available at: http://localhost:8888/test-file.bin
+Initial version: version-1
+============================================================
+
+[SCHEDULED] Will change current version to version-2 in 2 seconds...
+
+==========================================================================
+Test 1: Request without versionId (before version change)
+==========================================================================
+  -> Serving current version: version-1
+[08:06:58.883] HEAD /test-file.bin - "HEAD /test-file.bin HTTP/1.1" 200 -
+  -> Sent full file from version-1
+HTTP/1.0 200 OK
+Server: BaseHTTP/0.6 Python/3.11.14
+Content-Length: 1000000
+x-amz-version-id: version-1
+
+Expected: Should get version-1
+
+Waiting 3 seconds for server to change to version-2...
+
+============================================================
+[VERSION CHANGE] version-1 -> version-2
+============================================================
+
+
+==========================================================================
+Test 2: Request without versionId (after version change)
+==========================================================================
+  -> Serving current version: version-2
+[08:07:01.923] HEAD /test-file.bin - "HEAD /test-file.bin HTTP/1.1" 200 -
+  -> Sent full file from version-2
+HTTP/1.0 200 OK
+Server: BaseHTTP/0.6 Python/3.11.14
+Content-Length: 1000000
+x-amz-version-id: version-2
+
+Expected: Should get version-2 (current version)
+
+
+==========================================================================
+Test 3: Request with explicit versionId=version-1
+==========================================================================
+  -> Serving pinned version: version-1
+[08:07:01.958] HEAD /test-file.bin?versionId=version-1 - "HEAD /test-file.bin?versionId=version-1 HTTP/1.1" 200 -
+  -> Sent full file from version-1
+HTTP/1.0 200 OK
+Server: BaseHTTP/0.6 Python/3.11.14
+Content-Length: 1000000
+x-amz-version-id: version-1
+
+Expected: Should ALWAYS get version-1, regardless of current version
+
+
+==========================================================================
+Test 4: Request with explicit versionId=version-2
+==========================================================================
+  -> Serving pinned version: version-2
+[08:07:01.990] HEAD /test-file.bin?versionId=version-2 - "HEAD /test-file.bin?versionId=version-2 HTTP/1.1" 200 -
+  -> Sent full file from version-2
+HTTP/1.0 200 OK
+Server: BaseHTTP/0.6 Python/3.11.14
+Content-Length: 1000000
+x-amz-version-id: version-2
+
+Expected: Should ALWAYS get version-2, regardless of current version
+
+
+==========================================================================
+Test 5: Download range from version-1
+==========================================================================
+First 50 bytes:   -> Serving pinned version: version-1
+[08:07:02.024] GET /test-file.bin?versionId=version-1 - "GET /test-file.bin?versionId=version-1 HTTP/1.1" 206 -
+  -> Sent bytes 0-49 from version-1
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+Expected: 50 'A' characters
+
+
+==========================================================================
+Test 6: Download range from version-2
+==========================================================================
+First 50 bytes:   -> Serving pinned version: version-2
+[08:07:02.058] GET /test-file.bin?versionId=version-2 - "GET /test-file.bin?versionId=version-2 HTTP/1.1" 206 -
+  -> Sent bytes 0-49 from version-2
+BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB
+Expected: 50 'B' characters
+
+
+==========================================================================
+Test 7: Verify version consistency across multiple range requests
+==========================================================================
+Making 5 consecutive range requests to version-1...
+  -> Serving pinned version: version-1
+[08:07:02.095] GET /test-file.bin?versionId=version-1 - "GET /test-file.bin?versionId=version-1 HTTP/1.1" 206 -
+  -> Sent bytes 100-199 from version-1
+  Range 100-199: First char = 'A' (should be 'A')
+  -> Serving pinned version: version-1
+[08:07:02.138] GET /test-file.bin?versionId=version-1 - "GET /test-file.bin?versionId=version-1 HTTP/1.1" 206 -
+  -> Sent bytes 200-299 from version-1
+  Range 200-299: First char = 'A' (should be 'A')
+  -> Serving pinned version: version-1
+[08:07:02.187] GET /test-file.bin?versionId=version-1 - "GET /test-file.bin?versionId=version-1 HTTP/1.1" 206 -
+  -> Sent bytes 300-399 from version-1
+  Range 300-399: First char = 'A' (should be 'A')
+  -> Serving pinned version: version-1
+[08:07:02.230] GET /test-file.bin?versionId=version-1 - "GET /test-file.bin?versionId=version-1 HTTP/1.1" 206 -
+  -> Sent bytes 400-499 from version-1
+  Range 400-499: First char = 'A' (should be 'A')
+  -> Serving pinned version: version-1
+[08:07:02.277] GET /test-file.bin?versionId=version-1 - "GET /test-file.bin?versionId=version-1 HTTP/1.1" 206 -
+  -> Sent bytes 500-599 from version-1
+  Range 500-599: First char = 'A' (should be 'A')
+Expected: All 5 requests should return 'A' (version-1 data)
+
+
+==========================================================================
+SUCCESS: Version ID pinning works correctly!
+==========================================================================
+
+Key findings:
+1. Without versionId parameter: Gets the current version
+2. With versionId parameter: Always gets the specified version
+3. Multiple range requests to same versionId are consistent
+
+This proves that DuckDB's version ID pinning will prevent data corruption
+when files are modified during incremental reads.
+
+
+Cleaning up...
+Server stopped

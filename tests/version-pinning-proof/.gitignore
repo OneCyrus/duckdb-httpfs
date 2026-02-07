@@ -1,0 +1,7 @@
+# Downloaded DuckDB binaries
+duckdb
+duckdb_cli*
+
+# Test artifacts
+*.bin
+chunk*.bin
