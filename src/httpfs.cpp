@@ -59,6 +59,7 @@ unique_ptr<HTTPParams> HTTPFSUtil::InitializeParameters(optional_ptr<FileOpener>
 	FileOpener::TryGetCurrentSetting(opener, "ca_cert_file", result->ca_cert_file, info);
 	FileOpener::TryGetCurrentSetting(opener, "hf_max_per_page", result->hf_max_per_page, info);
 	FileOpener::TryGetCurrentSetting(opener, "unsafe_disable_etag_checks", result->unsafe_disable_etag_checks, info);
+	FileOpener::TryGetCurrentSetting(opener, "s3_version_id_pinning", result->s3_version_id_pinning, info);
 
 	{
 		auto db = FileOpener::TryGetDatabase(opener);
@@ -236,8 +237,7 @@ unique_ptr<HTTPResponse> HTTPFileSystem::GetRequest(FileHandle &handle, string u
 			    }
 			    throw HTTPException(error);
 		    }
-		    // Capture S3 version ID if not already set
-		    if (hfh.version_id.empty() && response.HasHeader("x-amz-version-id")) {
+		    if (hfh.http_params.s3_version_id_pinning && hfh.version_id.empty() && response.HasHeader("x-amz-version-id")) {
 			    hfh.version_id = response.GetHeaderValue("x-amz-version-id");
 		    }
 		    return true;
@@ -320,8 +320,7 @@ unique_ptr<HTTPResponse> HTTPFileSystem::GetRangeRequest(FileHandle &handle, str
 				    }
 			    }
 
-			    // Capture S3 version ID if not already set (fallback for when HEAD didn't return it)
-			    if (hfh.version_id.empty() && response.HasHeader("x-amz-version-id")) {
+			    if (hfh.http_params.s3_version_id_pinning && hfh.version_id.empty() && response.HasHeader("x-amz-version-id")) {
 				    hfh.version_id = response.GetHeaderValue("x-amz-version-id");
 			    }
 
@@ -842,9 +841,7 @@ void HTTPFileHandle::LoadFileInfo() {
 	if (res->headers.HasHeader("ETag")) {
 		etag = res->headers.GetHeaderValue("ETag");
 	}
-	// Capture S3 version ID for versioned buckets - this allows consistent reads
-	// even when the file is updated during incremental reading
-	if (res->headers.HasHeader("x-amz-version-id")) {
+	if (http_params.s3_version_id_pinning && res->headers.HasHeader("x-amz-version-id")) {
 		version_id = res->headers.GetHeaderValue("x-amz-version-id");
 	}
 	initialized = true;

@@ -63,7 +63,6 @@ public:
 	idx_t length;
 	timestamp_t last_modified;
 	string etag;
-	//! S3 version ID for versioned buckets - ensures consistent reads across range requests
 	string version_id;
 	bool force_full_download;
 	bool initialized = false;

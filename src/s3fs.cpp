@@ -806,7 +806,6 @@ unique_ptr<HTTPResponse> S3FileSystem::GetRequest(FileHandle &handle, string s3_
 	auto auth_params = s3_handle.auth_params;
 	auto parsed_s3_url = S3UrlParse(s3_url, auth_params);
 
-	// Build query string with versionId if available (for S3 versioned buckets)
 	string query_string;
 	if (!s3_handle.version_id.empty()) {
 		query_string = "versionId=" + UrlEncode(s3_handle.version_id, true);
@@ -820,7 +819,6 @@ unique_ptr<HTTPResponse> S3FileSystem::GetRequest(FileHandle &handle, string s3_
 		headers["Authorization"] = "Bearer " + auth_params.oauth2_bearer_token;
 		headers["Host"] = parsed_s3_url.host;
 	} else {
-		// Use existing S3 authentication (query_string is included in signature)
 		headers = CreateS3Header(parsed_s3_url.path, query_string, parsed_s3_url.host, "s3", "GET", auth_params, "", "", "", "");
 	}
 
@@ -833,8 +831,6 @@ unique_ptr<HTTPResponse> S3FileSystem::GetRangeRequest(FileHandle &handle, strin
 	auto auth_params = s3_handle.auth_params;
 	auto parsed_s3_url = S3UrlParse(s3_url, auth_params);
 
-	// Build query string with versionId if available (for S3 versioned buckets)
-	// This ensures we read from the same object version even if a newer version is uploaded
 	string query_string;
 	if (!s3_handle.version_id.empty()) {
 		query_string = "versionId=" + UrlEncode(s3_handle.version_id, true);
@@ -848,7 +844,6 @@ unique_ptr<HTTPResponse> S3FileSystem::GetRangeRequest(FileHandle &handle, strin
 		headers["Authorization"] = "Bearer " + auth_params.oauth2_bearer_token;
 		headers["Host"] = parsed_s3_url.host;
 	} else {
-		// Use existing S3 authentication (query_string is included in signature)
 		headers = CreateS3Header(parsed_s3_url.path, query_string, parsed_s3_url.host, "s3", "GET", auth_params, "", "", "", "");
 	}
 
