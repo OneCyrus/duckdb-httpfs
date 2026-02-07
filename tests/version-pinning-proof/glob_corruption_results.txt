@@ -1,0 +1,167 @@
+================================================================================
+Glob/Wildcard Corruption Test: *.json reads
+================================================================================
+
+This demonstrates that EVEN with force_full_download=true, you can get
+malformed JSON errors when files change between HEAD and GET requests.
+
+Scenario:
+  1. DuckDB reads *.json (multiple files)
+  2. For EACH file: HEAD request → GET request
+  3. Files change BETWEEN HEAD and GET
+  4. Result: Metadata mismatch → Malformed JSON errors
+
+Glob test server running on port 8888
+Initial version: version-1
+Version 1: {"id": 1, "name": "Alice", "age": 30}
+Version 2: {"id": 1, "name": "Alice", "age": 30, "city": "NYC", "extra_field": "new_data"}
+======================================================================
+
+================================================================================
+TEST 1: Single File Read with force_full_download=true
+================================================================================
+
+Even with force_full_download=true, there are STILL two requests:
+
+Step 1: HEAD request (DuckDB gets file metadata)
+------------------------------------------------------------------------
+    → Serving: version-1 (current: version-1)
+[001] HEAD /data.json
+Content-Length: 37
+x-amz-version-id: version-1
+
+DuckDB now expects:
+  - Content-Length: 37 bytes
+  - Version: version-1
+  - Structure: {id, name, age}
+
+Step 2: File changes on server (version-1 → version-2)
+------------------------------------------------------------------------
+
+======================================================================
+VERSION CHANGED: version-1 -> version-2
+Next GET request will serve different data!
+======================================================================
+
+Server now serving version-2 with DIFFERENT structure and size
+
+Step 3: GET request (DuckDB downloads file)
+------------------------------------------------------------------------
+    → Serving: version-2 (current: version-2)
+[002] GET /data.json
+    → Sent 79 bytes from version-2
+Downloaded: {"id": 1, "name": "Alice", "age": 30, "city": "NYC", "extra_field": "new_data"}
+
+DuckDB received:
+  - Content-Length: 79 bytes (expected: 37)
+  - Structure: {id, name, age, city, extra_field}
+
+❌ SIZE MISMATCH DETECTED!
+   HEAD said: 37 bytes (version-1)
+   GET returned: 79 bytes (version-2)
+
+   This causes:
+   - Malformed JSON errors (unexpected fields)
+   - Schema mismatch errors
+   - Checksum failures
+   - Data corruption
+
+================================================================================
+TEST 2: The Same Problem with Version Pinning FIXES It
+================================================================================
+
+Step 1: HEAD request captures version ID
+------------------------------------------------------------------------
+    → Serving: version-2 (current: version-2)
+[003] HEAD /data.json
+Content-Length: 79
+x-amz-version-id: version-2
+
+Captured version ID: version-1
+
+Step 2: File changes on server (still version-2)
+------------------------------------------------------------------------
+Server is serving version-2
+But we have version ID pinned to: version-1
+
+Step 3: GET request WITH versionId parameter
+------------------------------------------------------------------------
+    → Serving: version-1 (current: version-2)
+[004] GET /data.json?versionId=version-1
+    → Sent 37 bytes from version-1
+Downloaded: {"id": 1, "name": "Alice", "age": 30}
+
+DuckDB received:
+  - Content-Length: 37 bytes (expected: 79)
+  - Version: version-1 (pinned)
+
+❌ Unexpected mismatch
+
+================================================================================
+REAL-WORLD GLOB SCENARIO: *.json reads
+================================================================================
+
+When DuckDB reads *.json files:
+
+read_json('s3://bucket/*.json');
+
+It processes EACH file with:
+  1. Glob expansion (list files)
+  2. For each file:
+     a. HEAD request (get metadata)
+     b. GET request (download data)
+
+If files are being updated/replaced during this process:
+
+WITHOUT Version Pinning:
+  file1.json: HEAD → v1 metadata, GET → v2 data ❌ MISMATCH
+  file2.json: HEAD → v1 metadata, GET → v2 data ❌ MISMATCH
+  file3.json: HEAD → v2 metadata, GET → v2 data ✓ (lucky timing)
+
+  Result: Intermittent 'malformed JSON' errors!
+
+WITH Version Pinning:
+  file1.json: HEAD → v1 + versionId, GET → v1 (pinned) ✓ CONSISTENT
+  file2.json: HEAD → v1 + versionId, GET → v1 (pinned) ✓ CONSISTENT
+  file3.json: HEAD → v2 + versionId, GET → v2 (pinned) ✓ CONSISTENT
+
+  Result: Always consistent, no malformed JSON errors!
+
+================================================================================
+WHY force_full_download=true DOESN'T HELP
+================================================================================
+
+force_full_download=true only affects HOW the file is downloaded:
+  ✓ Downloads entire file in one GET (not ranges)
+  ✓ Prevents chunk-level corruption
+
+But it DOESN'T prevent HEAD/GET version mismatch:
+  ❌ Still makes separate HEAD request
+  ❌ File can change between HEAD and GET
+  ❌ Metadata (size, structure) doesn't match content
+
+The symptoms you see:
+  - 'Malformed JSON' errors
+  - 'Unexpected end of JSON input'
+  - 'Schema mismatch' errors
+  - Intermittent failures (timing-dependent)
+
+These are all caused by HEAD/GET version mismatches!
+
+================================================================================
+THE SOLUTION
+================================================================================
+
+Version ID pinning fixes this by:
+  1. Capturing version ID from HEAD response
+  2. Including versionId in GET request
+  3. Ensuring HEAD and GET return same version
+
+For *.json glob reads:
+  ✅ Each file's metadata and content are consistent
+  ✅ No malformed JSON errors
+  ✅ Works regardless of concurrent file updates
+
+================================================================================
+
+Stopping server...
