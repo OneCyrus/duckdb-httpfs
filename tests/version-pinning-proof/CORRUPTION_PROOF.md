@@ -6,9 +6,13 @@ This document provides **irrefutable proof** that DuckDB's HTTPfs extension can 
 
 ## The Corruption Scenario
 
+### When Does Corruption Occur?
+
+**The corruption ONLY happens with `force_download=false`** (the default setting).
+
 ### What Happens Without Version Pinning
 
-When DuckDB reads a large file from S3 using incremental range requests (the default with `force_download=false`):
+When DuckDB reads a large file from S3 using incremental range requests (`force_download=false`, the default):
 
 1. **Initial request** (HEAD or first GET): Gets metadata from **version-1**
 2. **File is updated** on S3: Current version becomes **version-2**
@@ -186,15 +190,32 @@ This corruption can happen in production when:
 - ✗ Intermittent failures that are hard to reproduce
 - ✗ **Silent corruption** - data is wrong but queries succeed
 
-### Why force_download=true Masks the Problem
+### The `force_download` Setting
 
-Setting `force_download=true` prevents this corruption by downloading the entire file in a single request. However, this:
-- ❌ Negates the performance benefits of incremental reading
-- ❌ Increases memory usage (entire file must fit in memory)
-- ❌ Increases latency (wait for full download before processing)
-- ❌ Doesn't scale for large files (10GB+ files)
+| Setting | Behavior | Corruption Risk | Performance |
+|---------|----------|----------------|-------------|
+| `force_download=false` **(default)** | Multiple range requests (incremental reading) | ❌ **YES** - without version pinning | ✅ Excellent |
+| `force_download=true` | Single full download | ✅ No (one request only) | ❌ Poor (memory/latency) |
+| **Version Pinning** | Multiple range requests with versionId | ✅ No (pinned version) | ✅ Excellent |
 
-**Version ID pinning solves the problem properly** while maintaining incremental read performance.
+### Why force_download=true Masks (But Doesn't Solve) the Problem
+
+Setting `force_download=true` prevents corruption by downloading the entire file in a single request:
+
+```
+Single Request: GET /file.bin (entire 5GB file)
+  → Downloads all 5GB from one version
+  → No subsequent requests
+  → No corruption possible
+```
+
+However, this "solution" has **severe limitations**:
+- ❌ **Memory**: Entire file must fit in memory (5GB file = 5GB RAM)
+- ❌ **Latency**: Must wait for complete download before processing
+- ❌ **Performance**: No incremental processing benefits
+- ❌ **Scalability**: Doesn't work for files larger than available RAM
+
+**Version ID pinning solves the problem properly** - it allows `force_download=false` (incremental reading) while guaranteeing data consistency.
 
 ## Conclusion
 

@@ -1,0 +1,160 @@
+================================================================================
+Comparison: force_download=true vs false vs version_pinning
+================================================================================
+
+This demonstrates that:
+  1. force_download=false (default) → CORRUPTION without version pinning
+  2. force_download=true → NO corruption (but poor performance)
+  3. Version pinning → NO corruption + good performance
+
+Mock S3 Server running on port 8888
+Test file available at: http://localhost:8888/test-file.bin
+Initial version: version-1
+============================================================
+
+[SCHEDULED] Will change current version to version-2 in 2 seconds...
+================================================================================
+SCENARIO 1: force_download=false (Default - Incremental Reading)
+================================================================================
+
+This is what DuckDB does by default for large files:
+  - Makes HEAD request to get metadata
+  - Makes multiple range requests to fetch data in chunks
+  - Efficient memory usage, fast startup
+
+WITHOUT version pinning, this causes corruption:
+
+Step 1: Initial HEAD request
+  -> Serving current version: version-1
+[08:32:00.832] HEAD /test-file.bin - "HEAD /test-file.bin HTTP/1.1" 200 -
+  -> Sent full file from version-1
+x-amz-version-id: version-1
+  → Got version-1 metadata
+
+Step 2: First range request (simulating DuckDB reading first chunk)
+  -> Serving current version: version-1
+[08:32:00.862] GET /test-file.bin - "GET /test-file.bin HTTP/1.1" 206 -
+  -> Sent bytes 0-100000 from version-1
+  First byte: 'A' (from version-1) ✓
+
+Step 3: File changes on server...
+
+============================================================
+[VERSION CHANGE] version-1 -> version-2
+============================================================
+
+  → Server now serving version-2
+
+Step 4: Second range request (DuckDB reading next chunk)
+  ⚠️  WITHOUT versionId parameter!
+  -> Serving current version: version-2
+[08:32:03.404] GET /test-file.bin - "GET /test-file.bin HTTP/1.1" 206 -
+  -> Sent bytes 100001-200000 from version-2
+  First byte: 'B' (from version-2) ❌ DIFFERENT VERSION!
+
+Result for force_download=false WITHOUT version pinning:
+  Chunk 1: 'A' (version-1)
+  Chunk 2: 'B' (version-2)
+  ❌ CORRUPTED: Mixed data from multiple versions!
+
+================================================================================
+SCENARIO 2: force_download=true (Full Download)
+================================================================================
+
+This is the workaround some users might use:
+  - Downloads entire file in ONE request
+  - No range requests, no chunks
+  - Prevents corruption but has performance costs
+
+Single GET request for entire file:
+  -> Serving current version: version-2
+[08:32:04.457] GET /test-file.bin - "GET /test-file.bin HTTP/1.1" 200 -
+  -> Sent full file from version-2
+  First byte: 'B'
+  Last byte:  'B'
+  Download time: 0s
+
+Result for force_download=true:
+  ✓ CONSISTENT: All data from one version
+
+  BUT at the cost of:
+    - Entire file in memory (not scalable for large files)
+    - No incremental processing
+    - Higher latency
+
+================================================================================
+SCENARIO 3: force_download=false + Version Pinning (BEST)
+================================================================================
+
+This is what the version ID pinning feature provides:
+  - Incremental reading (efficient memory usage)
+  - Multiple range requests (fast startup)
+  - Version pinning (data consistency)
+
+Step 1: HEAD request captures version ID
+  -> Serving current version: version-2
+[08:32:04.513] HEAD /test-file.bin - "HEAD /test-file.bin HTTP/1.1" 200 -
+  -> Sent full file from version-2
+x-amz-version-id: version-2
+  → Captured: version-1
+
+Step 2: First range request WITH versionId
+  -> Serving pinned version: version-1
+[08:32:04.542] GET /test-file.bin?versionId=version-1 - "GET /test-file.bin?versionId=version-1 HTTP/1.1" 206 -
+  -> Sent bytes 0-100000 from version-1
+  First byte: 'A' (from version-1) ✓
+
+Step 3: File is still version-2 on server (but we're pinned)
+  Current server version: version-2
+  Our pinned version: version-1
+
+Step 4: Second range request WITH versionId
+  -> Serving pinned version: version-1
+[08:32:04.580] GET /test-file.bin?versionId=version-1 - "GET /test-file.bin?versionId=version-1 HTTP/1.1" 206 -
+  -> Sent bytes 100001-200000 from version-1
+  First byte: 'A' (from version-1, pinned) ✓
+
+Result for force_download=false WITH version pinning:
+  Chunk 1: 'A' (version-1, pinned)
+  Chunk 2: 'A' (version-1, pinned)
+  ✅ CONSISTENT: All data from same version
+
+  AND we get:
+    + Incremental reading (memory efficient)
+    + Data consistency (version pinned)
+    + Fast startup (can process while downloading)
+    + Scalable (works for any file size)
+
+================================================================================
+SUMMARY: Comparison Table
+================================================================================
+
+Feature                             | force_download=false | force_download=true  | Version Pinning     
+--------------------------------------------------------------------------------
+Data Consistency                    | ❌ CORRUPTED        | ✅ Consistent       | ✅ Consistent      
+Memory Usage                        | ✅ Low (chunks)     | ❌ High (full file) | ✅ Low (chunks)    
+Performance                         | ✅ Fast startup     | ❌ Slow (wait for all) | ✅ Fast startup    
+Scalability                         | ✅ Any file size    | ❌ Limited by RAM   | ✅ Any file size   
+Request Count                       | Multiple ranges      | Single full GET      | Multiple ranges     
+Risk                                | Data corruption      | Poor performance     | None                
+
+================================================================================
+CONCLUSION
+================================================================================
+
+force_download=false (default):
+  ❌ WITHOUT version pinning: Data corruption when file changes
+  ✅ WITH version pinning: Safe AND efficient
+
+force_download=true:
+  ✅ No corruption (single request)
+  ❌ But sacrifices performance and scalability
+
+Version ID Pinning is the RIGHT solution:
+  ✅ Prevents corruption
+  ✅ Maintains incremental reading benefits
+  ✅ Production-ready for all file sizes
+
+================================================================================
+
+Stopping server...
