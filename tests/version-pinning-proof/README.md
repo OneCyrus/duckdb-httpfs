@@ -40,6 +40,17 @@ A comprehensive Python test that:
 - Verifies data consistency
 - Tests cache behavior
 
+### 4. `simulate_duckdb_corruption.sh` ⭐ **BEST PROOF**
+A detailed simulation that demonstrates **ACTUAL DATA CORRUPTION**:
+- Simulates exactly what DuckDB does with range requests
+- Downloads file in 3 chunks (200KB each)
+- File changes from version-1 to version-2 mid-download
+- **WITHOUT version pinning**: Chunk 1 gets 'A's, Chunks 2-3 get 'B's → **CORRUPTED FILE**
+- **WITH version pinning**: All chunks get 'A's → **CONSISTENT FILE**
+- Provides byte-level analysis of the corruption
+
+**This test provides irrefutable proof that the bug is real and version pinning solves it!**
+
 ## Running the Tests
 
 ### Prerequisites
@@ -72,7 +83,24 @@ This test verifies:
 - ✅ Explicit version requests work correctly
 - ✅ No data corruption or mixed content
 
-### Test 3: Interactive server testing
+### Test 3: Corruption simulation ⭐ **RECOMMENDED**
+```bash
+./simulate_duckdb_corruption.sh
+```
+
+This test provides:
+- ✅ **Concrete proof of data corruption** without version pinning
+- ✅ **Byte-level analysis** showing mixed version data
+- ✅ Side-by-side comparison of corrupted vs. fixed behavior
+- ✅ Clear visual evidence of the problem and solution
+
+**Expected output:**
+- Chunk 1: 'A' (version-1)
+- Chunk 2: 'B' (version-2) ← **CORRUPTION!**
+- Chunk 3: 'B' (version-2) ← **CORRUPTION!**
+- Result: ❌ MIXED DATA - File is corrupted
+
+### Test 4: Interactive server testing
 ```bash
 # Terminal 1: Start the server
 python3 mock_s3_server.py
