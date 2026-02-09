@@ -89,3 +89,76 @@ query I
 SELECT COUNT(*) FROM 's3://test-bucket-public/root-dir/version_pinning/test.parquet';
 ----
 200
+
+# ============================================================
+# Scenario 2: Cross-range consistency — pin on metadata read,
+# overwrite, then read row-group data and verify no mixed content.
+# ============================================================
+
+# Create tables with a fixed value per version so we can detect any mixing.
+# Use small ROW_GROUP_SIZE to force multiple GET-range requests when reading data.
+statement ok
+CREATE TABLE V1_DATA AS SELECT 1 AS val FROM range(10000);
+
+statement ok
+CREATE TABLE V2_DATA AS SELECT 2 AS val FROM range(10000);
+
+# Write V1 with many small row groups → many range reads later
+statement ok
+COPY V1_DATA TO 's3://test-bucket-public/root-dir/version_pinning/range_test.parquet' (FORMAT PARQUET, ROW_GROUP_SIZE 1000);
+
+# Enable version pinning + global metadata cache
+statement ok
+SET s3_version_id_pinning=true;
+
+statement ok
+SET enable_http_metadata_cache=true;
+
+# Metadata-only read: COUNT(*) on parquet reads only the footer.
+# This captures version_id V1 in the global metadata cache.
+query I
+SELECT COUNT(*) FROM 's3://test-bucket-public/root-dir/version_pinning/range_test.parquet';
+----
+10000
+
+# Overwrite with V2 data while the global cache still holds V1.
+# Disable global cache so the write doesn't erase the cached V1.
+statement ok
+SET enable_http_metadata_cache=false;
+
+statement ok
+COPY V2_DATA TO 's3://test-bucket-public/root-dir/version_pinning/range_test.parquet' (FORMAT PARQUET, ROW_GROUP_SIZE 1000);
+
+statement ok
+SET enable_http_metadata_cache=true;
+
+# Read actual row-group data. The global cache supplies V1's version_id,
+# so every GET-range request (one per row group) includes ?versionId=V1.
+# All values must be 1 (from V1). If any range leaked V2, we'd see 2s.
+query I
+SELECT SUM(val) FROM 's3://test-bucket-public/root-dir/version_pinning/range_test.parquet';
+----
+10000
+
+# Confirm zero rows from V2 — no mixed content across ranges
+query I
+SELECT COUNT(*) FROM 's3://test-bucket-public/root-dir/version_pinning/range_test.parquet' WHERE val != 1;
+----
+0
+
+# --- Un-pin and verify we now see V2 ---
+statement ok
+SET enable_http_metadata_cache=false;
+
+statement ok
+SET s3_version_id_pinning=false;
+
+query I
+SELECT SUM(val) FROM 's3://test-bucket-public/root-dir/version_pinning/range_test.parquet';
+----
+20000
+
+query I
+SELECT COUNT(*) FROM 's3://test-bucket-public/root-dir/version_pinning/range_test.parquet' WHERE val != 2;
+----
+0
