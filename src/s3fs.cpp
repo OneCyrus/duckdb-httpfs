@@ -845,6 +845,7 @@ unique_ptr<HTTPResponse> S3FileSystem::GetRangeRequest(FileHandle &handle, strin
 		headers["Authorization"] = "Bearer " + auth_params.oauth2_bearer_token;
 		headers["Host"] = parsed_s3_url.host;
 	} else {
+		// Use existing S3 authentication
 		headers = CreateS3Header(parsed_s3_url.path, query_string, parsed_s3_url.host, "s3", "GET", auth_params, "", "", "", "");
 	}
 
