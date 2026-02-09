@@ -1384,8 +1384,8 @@ vector<string> AWSListObjectV2::ParseCommonPrefix(string &aws_response) {
 			if (next_close_tag_pos == string::npos) {
 				throw InternalException("Failed to parse S3 result");
 			}
-			auto parsed_path = aws_response.substr(next_open_tag_pos + 8, next_close_tag_pos - next_open_tag_pos - 8);
-			s3_prefixes.push_back(parsed_path);
+			auto raw_prefix = aws_response.substr(next_open_tag_pos + 8, next_close_tag_pos - next_open_tag_pos - 8);
+			s3_prefixes.push_back(S3FileSystem::UrlDecode(raw_prefix));
 			cur_pos = next_close_tag_pos + 6;
 		}
 	}

@@ -300,7 +300,8 @@ unique_ptr<HTTPResponse> HTTPFileSystem::GetRangeRequest(FileHandle &handle, str
 		    if (static_cast<int>(response.status) < 300) { // done redirecting
 			    out_offset = 0;
 
-			    if (!hfh.http_params.unsafe_disable_etag_checks && !hfh.etag.empty() && response.HasHeader("ETag")) {
+			    if (!hfh.http_params.unsafe_disable_etag_checks && !hfh.etag.empty() && hfh.version_id.empty() &&
+			        response.HasHeader("ETag")) {
 				    string responseEtag = response.GetHeaderValue("ETag");
 
 				    if (!responseEtag.empty() && responseEtag != hfh.etag) {
@@ -891,7 +892,7 @@ void HTTPFileHandle::Initialize(optional_ptr<FileOpener> opener) {
 			HTTPMetadataCacheEntry value;
 			bool found = current_cache->Find(path, value);
 
-			if (found) {
+			if (found && !(http_params.s3_version_id_pinning && value.version_id.empty())) {
 				last_modified = value.last_modified;
 				length = value.length;
 				etag = value.etag;
