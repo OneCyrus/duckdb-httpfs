@@ -11,7 +11,7 @@ services:
     environment:
       - MINIO_ROOT_USER=duckdb_minio_admin
       - MINIO_ROOT_PASSWORD=duckdb_minio_admin_password
-      - MINIO_REGION_NAME=eu-west-1
+      - MINIO_SITE_REGION=eu-west-1
       - MINIO_DOMAIN=duckdb-minio.com
     command: server /data --console-address ":9001"
 
