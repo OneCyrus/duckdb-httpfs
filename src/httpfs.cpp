@@ -300,7 +300,8 @@ unique_ptr<HTTPResponse> HTTPFileSystem::GetRangeRequest(FileHandle &handle, str
 		    if (static_cast<int>(response.status) < 300) { // done redirecting
 			    out_offset = 0;
 
-			    if (!hfh.http_params.unsafe_disable_etag_checks && !hfh.etag.empty() && response.HasHeader("ETag")) {
+			    if (!hfh.http_params.unsafe_disable_etag_checks && !hfh.etag.empty() && hfh.version_id.empty() &&
+			        response.HasHeader("ETag")) {
 				    string responseEtag = response.GetHeaderValue("ETag");
 
 				    if (!responseEtag.empty() && responseEtag != hfh.etag) {
