@@ -80,9 +80,6 @@ SELECT COUNT(*) FROM 's3://test-bucket-public/root-dir/version_pinning/range_tes
 statement ok
 SET enable_http_metadata_cache=false;
 
-statement ok
-SET s3_version_id_pinning=false;
-
 query I
 SELECT SUM(val) FROM 's3://test-bucket-public/root-dir/version_pinning/range_test.parquet';
 ----
