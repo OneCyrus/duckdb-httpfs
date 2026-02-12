@@ -54,31 +54,23 @@ SELECT COUNT(*) FROM 's3://test-bucket-public/root-dir/version_pinning/test.parq
 ----
 100
 
-# Verify the HEAD request was made to capture the version ID, and the GET
-# does not yet include a versionId parameter (it was just captured this request).
-query II rowsort
-SELECT request.type, contains(request.url, 'versionId') FROM duckdb_logs_parsed('HTTP');
+# Verify the HEAD request was made and that the response carried a version ID.
+query I
+SELECT response.headers['x-amz-version-id'] != '' FROM duckdb_logs_parsed('HTTP')
+WHERE request.type = 'HEAD';
 ----
-GET	false
-HEAD	false
-
-statement ok
-CALL truncate_duckdb_logs();
+true
 
 # Disable the global metadata cache BEFORE overwriting.
 # This way the COPY TO below erases from the per-context cache only,
 # leaving the global cache entry (with V1's version_id) intact.
+# We do NOT truncate logs here — we need the HEAD response versionId for comparison below.
 statement ok
 SET enable_http_metadata_cache=false;
 
 # Overwrite the file with T2 (200 rows), creating a new version V2.
-# Because the global metadata cache is disabled, the write erases from
-# the per-context cache, not the global cache.
 statement ok
 COPY T2 TO 's3://test-bucket-public/root-dir/version_pinning/test.parquet';
-
-statement ok
-CALL truncate_duckdb_logs();
 
 # Re-enable the global metadata cache. It still holds the V1 entry.
 statement ok
@@ -91,13 +83,18 @@ SELECT COUNT(*) FROM 's3://test-bucket-public/root-dir/version_pinning/test.parq
 ----
 100
 
-# Verify the GET request includes the versionId query parameter, confirming
-# the pinned version is being used.
-query II
-SELECT request.type, contains(request.url, 'versionId') FROM duckdb_logs_parsed('HTTP')
-WHERE request.type = 'GET';
+# Verify that the versionId in the pinned GET URL exactly matches the version ID
+# that was captured from the HEAD response header during the first read.
+query I
+SELECT
+    regexp_extract(request.url, 'versionId=([^&]+)', 1) =
+    (SELECT response.headers['x-amz-version-id']
+     FROM duckdb_logs_parsed('HTTP')
+     WHERE request.type = 'HEAD')
+FROM duckdb_logs_parsed('HTTP')
+WHERE request.type = 'GET' AND contains(request.url, 'versionId');
 ----
-GET	true
+true
 
 statement ok
 CALL truncate_duckdb_logs();
@@ -119,8 +116,8 @@ SELECT COUNT(*) FROM 's3://test-bucket-public/root-dir/version_pinning/test.parq
 200
 
 # Verify that without version pinning the GET request has no versionId parameter.
-query II
-SELECT request.type, contains(request.url, 'versionId') FROM duckdb_logs_parsed('HTTP')
-WHERE request.type = 'GET';
+query I
+SELECT count(*) FROM duckdb_logs_parsed('HTTP')
+WHERE request.type = 'GET' AND contains(request.url, 'versionId');
 ----
-GET	false
+0
